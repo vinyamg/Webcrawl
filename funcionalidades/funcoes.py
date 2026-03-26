@@ -43,7 +43,9 @@ class sensive:
 def social(chaves, dados):
     encontrados = set()
     for url in chaves:
-        if not url.endswith(".js") or not url.endswith(".mjs"):
+        if url not in dados or not isinstance(dados[url], dict):
+            continue
+        if not (url.endswith(".js") or url.endswith(".mjs")):
             links = dados[url]["links"]
             for redes in links:
                 if "www.facebook.com" in redes or "www.pinterest.com" in redes or "www.youtube.com/c/" in redes or "twitter.com" in redes:
@@ -64,6 +66,8 @@ def subdomain(chaves, dados, dominio):
     for url in chaves:
         if not (url.endswith(".js") or url.endswith(".mjs")):
             continue
+        if url not in dados or not isinstance(dados[url], dict):
+            continue
 
         links = dados[url]["links"]
 
@@ -79,6 +83,8 @@ def subdomain(chaves, dados, dominio):
 def gets(chaves, dados, alvo):
     validos = set()
     for url in chaves:
+        if url not in dados or not isinstance(dados[url], dict):
+            continue
         if not (url.endswith(".js") or url.endswith(".mjs")):
             links = dados[url]["links"]
             for parametros in links:
@@ -88,6 +94,8 @@ def gets(chaves, dados, alvo):
         print(f"- {i}")
 def posts(chaves, dados):
     for url in chaves:
+        if url not in dados or not isinstance(dados[url], dict):
+            continue
         if not (url.endswith(".js") or url.endswith(".mjs")):
             parametros = dados[url]["post"]
             if parametros:
@@ -108,10 +116,13 @@ def js(chaves, dados, dominio, comando, alvo):
         urls = []
         paths = []
         for i in valores:
-            if (i.startswith("https") or i.startswith("http")) and len(i) > 7:
+            if (i.startswith("https://") or i.startswith("http://")) and len(i) > 10:
                 urls.append(i)
             elif (i.startswith("/") or i.startswith("//") or i.startswith("./") or i.startswith("\\")) and len(i) > 3 and not i.startswith(r"\u"):
-                paths.append(i)
+                if ":" in i or ";" in i or "{" in i or "}" in i or "!" in i or " " in i or ")" in i or "(" in i or '"' in i:
+                    pass
+                else:
+                    paths.append(i)
             else:
                 pass
         return list(set(urls)), list(set(paths))

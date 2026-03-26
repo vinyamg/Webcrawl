@@ -3,10 +3,13 @@ from funcionalidades.Crawler import crawler
 import os
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--url", help="Yrl do alvo", type=str)
+parser.add_argument("--url", help="Url do alvo", type=str)
 parser.add_argument("--analyze", action="store_true", help="Analisa os dados")
 parser.add_argument("-t", type=int, help="Tempo entre as requisições em /s", default=None)
 args = parser.parse_args()
+
+if not os.path.exists("alvos"):
+    os.mkdir("alvos")
 
 try:
     if not args.url and not args.analyze:
