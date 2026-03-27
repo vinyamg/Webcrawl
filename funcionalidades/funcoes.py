@@ -1,9 +1,19 @@
 from colorama import Fore
 import re
-from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 from urllib.parse import urlparse
 
+
+class codigo_regexs:
+    ajax = r"\$\.ajax\(\{\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)"
+    #ajax = r"\$\.ajax\(\{\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)"
+    fetch = r'fetch\(.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)'
+    http_request = r'this\.\w+\.\w+\(.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)'
+    pattern = [ajax, fetch, http_request]
+
+    variaveis = r".*=.*"
+    palavrasChavesVetores = r"\b(admin|role|Cookies.set|Cookies.get|Cookies.remove|userRole)\b"
+    palavrasChavesBaixo = r"\b(id|userId)\b"
 
 class sensive:
     tokens_header = r'token:.*'
@@ -58,7 +68,7 @@ def help():
     print("Posts - Mostra todos os endpoints com parametros POST")
     print("subdomains - Mostra todos os subdominios descobertos")
     print("social - Mostra todas as redes sociais encontradas")
-    print("js <comando>\n  - search")
+    print("js <comando>\n  - search\n  - reverse")
     print()
 def subdomain(chaves, dados, dominio):
     encontrados = set()  # <-- agora é global
@@ -133,7 +143,31 @@ def js(chaves, dados, dominio, comando, alvo):
                 if matches:
                     for m in matches:
                         print(f"[+] {nome}: {m}")
+    def reverse(origem, codigo, comando):
+        def classificacao(valor):
+            if re.search(codigo_regexs.palavrasChavesVetores, valor, re.IGNORECASE):
+                return Fore.YELLOW + valor + Fore.RESET
+            elif re.search(codigo_regexs.palavrasChavesBaixo, valor, re.IGNORECASE) and not re.search(r"</.*?>", valor):
+                return Fore.BLUE + valor + Fore.RESET
+            else:
+                return False
 
+        if comando == "requests":
+            for regexs in codigo_regexs.pattern:
+                procurar = re.findall(regexs, codigo)
+                if procurar:
+                    for i in procurar:
+                        print(Fore.GREEN + f"\n[+] Achado['{origem}']:" + Fore.RESET + f"\n\n{i}")
+        elif comando == "variaveis":
+            variaveis = re.findall(codigo_regexs.variaveis, codigo)
+            if variaveis:
+                for i in variaveis:
+                    verificacao = classificacao(i)
+                    if verificacao:
+                        print(f"\n[+] Achado['{origem}']:\n\n{verificacao}")
+
+        elif comando == "entrada":
+            print("opa")
     def mostrarDados(info, tipo):
         def tipos(valor):
             if "api" in valor or "admin" in valor or "account" in valor or "login" in valor or "supabase.co" in valor or "firebase" in valor or "firestore" in valor or "amazonaws.com" in valor:
@@ -171,13 +205,15 @@ def js(chaves, dados, dominio, comando, alvo):
             for i in info:
                 tipo = tipos(i)
                 print(f"[+] {tipo}")
-    codigo = codigo_js()
+    codigo_strings = codigo_js()
     acao = comando[3:]
     if acao == "search":
         regex = r'"(.*?)"'
         regex2 = r"'(.*?)'"
-        valoresAspasDuplas = re.findall(regex, codigo)
-        valoresAspasSimples = re.findall(regex2, codigo)
+        regex3 = r"`(.*?)`"
+        valoresAspasDuplas = re.findall(regex, codigo_strings)
+        valoresAspasSimples = re.findall(regex2, codigo_strings)
+        valoresApostrofos = re.findall(regex3, codigo_strings)
         print("1. Endpoints 2. Tecnologias 3. Tokens\n99. Sair")
         while True:
             procura = int(input("O que você deseja procurar?: "))
@@ -185,12 +221,15 @@ def js(chaves, dados, dominio, comando, alvo):
                 case 1:
                     urls, paths = endpoints(valoresAspasDuplas)
                     urls2, paths2 = endpoints(valoresAspasSimples)
+                    urls3, paths3 = endpoints(valoresApostrofos)
                     print("Caminhos encontrados:\n")
                     mostrarDados(paths, 2)
                     mostrarDados(paths2, 2)
+                    mostrarDados(paths3, 2)
                     print("\nurls encontradas:\n")
                     mostrarDados(urls, 1)
                     mostrarDados(urls2, 1)
+                    mostrarDados(urls3, 1)
                 case 3:
                     tokens(valoresAspasSimples)
                     tokens(valoresAspasDuplas)
@@ -199,5 +238,28 @@ def js(chaves, dados, dominio, comando, alvo):
                     break
                 case _:
                     print("Opção inválida")
+    elif acao == "reverse":
+        print("Digite 'help' para obter ajuda")
+        while True:
+            comando = input(r"Reverse\$> ").lower()
+            if comando == "exit":
+                break
+            if comando == "help":
+                print("\nComandos:\n - requests > Mostra requisições fetch, ajax, axios, etc\n - variaveis > Mostra variaveis com valores uteis")
+            for url in chaves:
+                if url not in dados or not isinstance(dados[url], dict):
+                    continue
+                if not (url.endswith(".js") or url.endswith(".mjs")):
+                    codigoEm_Html = dados[url]["scripts_inline"]
+                    codigoFinal = ""
+                    for i in codigoEm_Html:
+                        codigoFinal += i + "\n"
+
+                    reverse(url, codigoFinal, comando)
+                else:
+                    codigoPuro = dados[url]
+                    reverse(url, codigoPuro, comando)
+
+
     else:
-        print(codigo)
+        print(codigo_strings)
