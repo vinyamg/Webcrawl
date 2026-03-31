@@ -8,6 +8,7 @@ import time
 import tldextract
 import os
 from urllib.parse import urlparse, urlunparse
+import random
 
 
 def coleta(html):
@@ -41,6 +42,7 @@ def coleta(html):
         for link in soup.find_all('link')
         if link.get('href')
     }
+    # NAME <input name="">
     names = {
         input_tag.get('name')
         for input_tag in soup.find_all('input')
@@ -56,22 +58,73 @@ def coleta(html):
     }
 
 
-def crawler(url, tempo):
+def crawler(url, tempo, agent, tor):
     ext = tldextract.extract(url)
     dominio = ext.domain + '.' + ext.suffix
     if os.path.exists(f"alvos/{dominio}.json"):
         print("Esse alvo já foi coletado, use --analyze")
         return
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 9; itel W6501) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/93.0.4577.82 Mobile Safari/537.36"
+    user_agents = [
+        # Windows - Chrome / Edge
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.95 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.184 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edg/121.0.2277.128 Safari/537.36",
+        # macOS - Safari / Chrome
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.184 Safari/537.36",
+        # Linux - Chrome / Firefox
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.224 Safari/537.36",
+        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        # Android - Chrome
+        "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.101 Mobile Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 12; Redmi Note 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36",
+        # iPhone - Safari / Chrome
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.71 Mobile/15E148 Safari/604.1",
+        # iPad
+        "Mozilla/5.0 (iPad; CPU OS 16_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.7 Mobile/15E148 Safari/604.1",
+        # Firefox Windows
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        # Edge moderno
+        "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.95 Safari/537.36 Edg/122.0.2365.66"
+    ]
+    proxiesTor = {
+        "http": "socks5h://127.0.0.1:9050",
+        "https": "socks5h://127.0.0.1:9050"
     }
+    if agent:
+        headers = {
+            "User-Agent": random.choice(user_agents)
+        }
+    else:
+        headers = {
+            "User-Agent": "webCrawler/Tool"
+        }
+
     urls_completa = []
     dados_gerais = {}
+    if tor:
+        try:
+            response = requests.get(
+                "https://httpbin.org/ip",
+                proxies=proxiesTor,
+                timeout=10
+            )
+            print("Proxy funcionando!")
+            print("IP:", response.json())
+        except Exception as e:
+            print("Proxy não está funcionando")
+            print("Considere ativar o serviço tor: 'sudo service tor start'")
+            return
+    print(f"[+] Alvo: {url}\n")
 
     def requisicao(url_path):
         if url_path.startswith(url):
             try:
-                requisicao = requests.get(url_path, headers=headers, timeout=5)
+                if tor:
+                    requisicao = requests.get(url_path, headers=headers, proxies=proxiesTor, timeout=5)
+                else:
+                    requisicao = requests.get(url_path, headers=headers, timeout=5)
                 if requisicao.status_code == 200:
                     requisicao = requisicao.text
                     if url_path.endswith(".js") or url_path.endswith(".mjs"):
@@ -82,7 +135,14 @@ def crawler(url, tempo):
                         for i in [resultado["links"], resultado["css"], resultado["scripts_externos"]]:
                             divisao(i)
                             time.sleep(tempo)
+                elif requisicao.status_code == 429:
+                    print("\nRate Limited excedido, esperando 10s, caso não resolva, considere o -t\n")
+                    time.sleep(10)
             except requests.exceptions.Timeout:
+                pass
+            except requests.exceptions.TooManyRedirects:
+                pass
+            except requests.exceptions.RequestException as e:
                 pass
         else:
             pass
@@ -103,6 +163,12 @@ def crawler(url, tempo):
                 pass
         urls_completa[:] = list(dict.fromkeys(urls_completa))
     inicio = time.time()
+    if tor:
+        verificacao = requests.get(url, headers=headers, timeout=5, proxies=proxiesTor)
+        if verificacao.status_code == 403:
+            print("🚫 Bloqueado (provável Tor)")
+        elif verificacao.status_code == 503:
+            print("⚠️ Possível bloqueio / proteção")
     requisicao(url) #principal
     urls_visitadas = [url]
     vezes = []

@@ -30,7 +30,6 @@ Projetada como apoio para atividades de **pentest** e **bug bounty**.
     - `social` → Busca redes sociais
     - `posts` → lista endpoints com parâmetros POST
     - `subdomains` → lista subdomínios
-    - *(em expansão)*
 
 ---
 

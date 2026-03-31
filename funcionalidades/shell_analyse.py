@@ -12,14 +12,19 @@ def shell():
             print("\nAlvos:\n")
             for i, item in enumerate(arquivos):
                 print(f"{i}. {item[:-5]}")
-            print("\n99. Sair")
+            print("\n88. Apagar os alvos | 99. Sair")
             alvo = int(input("\nQual é o seu alvo?: "))
             if alvo == 99:
                 break
+            if alvo == 88:
+                for i in arquivos:
+                    os.remove(f"alvos/{i}")
+                print("[+] Alvos apagados!")
+                break
             with open(f"alvos/{arquivos[alvo]}", "rb") as arq:
                 dados = json.load(arq)
-        except Exception:
-            print("Algo deu errado, alvo inválido, comando incorreto, etc")
+        except Exception as e:
+            print(f"Algo deu errado, alvo inválido, comando incorreto, etc\n\n{e}")
             break
 
         chaves = list(dados.keys())
@@ -29,24 +34,26 @@ def shell():
         dominio = ext.domain + '.' + ext.suffix
         print("Digite 'help' para ajuda\n")
         while True:
-            comando = input("$> ").lower()
-
-            if comando == "posts":
-                posts(chaves, dados)
-            elif comando == "gets":
-                gets(chaves, dados, alvo)
-            elif comando == "subdomains":
-                subdomain(chaves, dados, dominio)
-            elif comando.startswith("js"):
-                js(chaves, dados, dominio, comando, alvo)
-            elif comando == "social":
-                social(chaves, dados)
-            elif comando == "exit":
-                print("bye bye")
-                break
-            elif comando == "help":
-                help()
-            else:
-                print("Comando inválido.")
+            try:
+                comando = input("$> ").lower()
+                if comando == "posts":
+                    posts(chaves, dados)
+                elif comando == "gets":
+                    gets(chaves, dados, alvo)
+                elif comando == "subdomains":
+                    subdomain(chaves, dados, dominio)
+                elif comando.startswith("js"):
+                    js(chaves, dados, dominio, comando, alvo)
+                elif comando == "social":
+                    social(chaves, dados)
+                elif comando == "exit":
+                    print("bye bye")
+                    break
+                elif comando == "help":
+                    help()
+                else:
+                    print("Comando inválido.")
+            except Exception:
+                print("Algo deu errado.")
 
 

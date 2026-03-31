@@ -3,7 +3,6 @@ import re
 from tqdm import tqdm
 from urllib.parse import urlparse
 
-
 class codigo_regexs:
     ajax = r"\$\.ajax\(\{\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)"
     #ajax = r"\$\.ajax\(\{\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)"
@@ -13,7 +12,7 @@ class codigo_regexs:
 
     variaveis = r".*=.*"
     palavrasChavesVetores = r"\b(admin|role|Cookies.set|Cookies.get|Cookies.remove|userRole)\b"
-    palavrasChavesBaixo = r"\b(id|userId)\b"
+    palavrasChavesBaixo = r"\b(userId)\b"
 
 class sensive:
     tokens_header = r'token:.*'
@@ -60,6 +59,9 @@ def social(chaves, dados):
             for redes in links:
                 if "www.facebook.com" in redes or "www.pinterest.com" in redes or "www.youtube.com/c/" in redes or "twitter.com" in redes:
                     encontrados.add(redes)
+                if redes.startswith("mailto:"):
+                    email = redes[7:]  # remove "mailto:"
+                    encontrados.add(email)
     for i in encontrados:
         print(f"[+] {i}")
 def help():
@@ -71,7 +73,7 @@ def help():
     print("js <comando>\n  - search\n  - reverse")
     print()
 def subdomain(chaves, dados, dominio):
-    encontrados = set()  # <-- agora é global
+    encontrados = set()
 
     for url in chaves:
         if not (url.endswith(".js") or url.endswith(".mjs")):
@@ -113,13 +115,19 @@ def posts(chaves, dados):
                 print(f"{parametros}\n")
 
 def js(chaves, dados, dominio, comando, alvo):
+    instrucoes = {
+        "branco": "Branco: Informação",
+        "azul": Fore.BLUE + "Azul: Informação baixa" + Fore.RESET,
+        "amarelo": Fore.YELLOW + "Amarelo: Superficie de ataque" + Fore.RESET,
+        "vermelho": Fore.RED + "Vermelho: informação grave!!" + Fore.RESET
+    }
     def codigo_js():
         codigo_final = ""
         for url in tqdm(chaves, desc="Especionando código"):
             if url.endswith(".js") or url.endswith(".mjs"):
                 codigo_final += dados[url] + "\n"
             else:
-               codigo_final += "".join(i + "\n" for i in dados[url]["scripts_inline"])
+                codigo_final += "".join(i + "\n" for i in dados[url]["scripts_inline"])
         return codigo_final
 
     def endpoints(valores):
@@ -165,9 +173,9 @@ def js(chaves, dados, dominio, comando, alvo):
                     verificacao = classificacao(i)
                     if verificacao:
                         print(f"\n[+] Achado['{origem}']:\n\n{verificacao}")
+        else:
+            pass
 
-        elif comando == "entrada":
-            print("opa")
     def mostrarDados(info, tipo):
         def tipos(valor):
             if "api" in valor or "admin" in valor or "account" in valor or "login" in valor or "supabase.co" in valor or "firebase" in valor or "firestore" in valor or "amazonaws.com" in valor:
@@ -180,12 +188,6 @@ def js(chaves, dados, dominio, comando, alvo):
         fora_escopo = []
         escopo = []
 
-        instrucoes = {
-            "branco": "Branco: Informação",
-            "azul": Fore.BLUE + "Azul: Informação baixa" + Fore.RESET,
-            "amarelo": Fore.YELLOW + "Amarelo: Superficie de ataque" + Fore.RESET,
-            "vermelho": Fore.RED + "Vermelho: informação grave!!" + Fore.RESET
-        }
         print(instrucoes["branco"] + "\n" + instrucoes["azul"] + "\n" + instrucoes["amarelo"] + "\n" + instrucoes[
             "vermelho"] + "\n")
         if tipo == 1:  # tipo 1 = Urls
@@ -194,7 +196,8 @@ def js(chaves, dados, dominio, comando, alvo):
                     tipo = tipos(i)
                     escopo.append(tipo)
                 else:
-                    fora_escopo.append(i)
+                    tipo = tipos(i)
+                    fora_escopo.append(tipo)
             print("No escopo:\n")
             for i in escopo:
                 print(f"[+] {i}")
@@ -205,6 +208,7 @@ def js(chaves, dados, dominio, comando, alvo):
             for i in info:
                 tipo = tipos(i)
                 print(f"[+] {tipo}")
+
     codigo_strings = codigo_js()
     acao = comando[3:]
     if acao == "search":
@@ -214,7 +218,7 @@ def js(chaves, dados, dominio, comando, alvo):
         valoresAspasDuplas = re.findall(regex, codigo_strings)
         valoresAspasSimples = re.findall(regex2, codigo_strings)
         valoresApostrofos = re.findall(regex3, codigo_strings)
-        print("1. Endpoints 2. Tecnologias 3. Tokens\n99. Sair")
+        print("1. Endpoints 2. Tokens\n99. Sair")
         while True:
             procura = int(input("O que você deseja procurar?: "))
             match (procura):
@@ -230,7 +234,7 @@ def js(chaves, dados, dominio, comando, alvo):
                     mostrarDados(urls, 1)
                     mostrarDados(urls2, 1)
                     mostrarDados(urls3, 1)
-                case 3:
+                case 2:
                     tokens(valoresAspasSimples)
                     tokens(valoresAspasDuplas)
                 case 99:
@@ -239,7 +243,9 @@ def js(chaves, dados, dominio, comando, alvo):
                 case _:
                     print("Opção inválida")
     elif acao == "reverse":
-        print("Digite 'help' para obter ajuda")
+        print(instrucoes["branco"] + "\n" + instrucoes["azul"] + "\n" + instrucoes["amarelo"] + "\n" + instrucoes[
+            "vermelho"] + "\n")
+        print("\nDigite 'help' para obter ajuda")
         while True:
             comando = input(r"Reverse\$> ").lower()
             if comando == "exit":
@@ -254,12 +260,9 @@ def js(chaves, dados, dominio, comando, alvo):
                     codigoFinal = ""
                     for i in codigoEm_Html:
                         codigoFinal += i + "\n"
-
                     reverse(url, codigoFinal, comando)
                 else:
                     codigoPuro = dados[url]
                     reverse(url, codigoPuro, comando)
-
-
     else:
-        print(codigo_strings)
+        print("Comando inválido...")

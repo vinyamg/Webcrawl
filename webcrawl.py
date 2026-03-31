@@ -5,6 +5,8 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument("--url", help="Url do alvo", type=str)
 parser.add_argument("--analyze", action="store_true", help="Analisa os dados")
+parser.add_argument("--random-agent", action="store_true", help="User agent aleatório")
+parser.add_argument("--tor", action="store_true", help="Proxy tor")
 parser.add_argument("-t", type=int, help="Tempo entre as requisições em /s", default=None)
 args = parser.parse_args()
 
@@ -18,12 +20,14 @@ try:
         if args.url:
             url = args.url
             tempo = args.t
+            agent = args.random_agent
+            tor = args.tor
             if url.endswith("/"):
                 url = url[:-1]
             os.system("cls" if os.name == "nt" else "clear")
             if not tempo:
                 tempo = 0
-            crawler(url, tempo)
+            crawler(url, tempo, agent, tor)
         if args.analyze:
             from funcionalidades.shell_analyse import shell
             shell()
