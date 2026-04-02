@@ -2,6 +2,7 @@ from colorama import Fore
 import re
 from tqdm import tqdm
 from urllib.parse import urlparse, urlunparse
+from typing import Dict, List, Set
 
 class codigo_regexs:
     ajax = r"\$\.ajax\(\{\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)"
@@ -64,21 +65,53 @@ def arquivoTipo(chaves, dados, comando):
             extensao = comando[4:]
             if urlsParametros.endswith(extensao):
                 print(f"[+] {urlsParametros}")
-def social(chaves, dados):
-    encontrados = set()
+def social(chaves: List[str], dados: Dict) -> None:
+    REDES_PATTERNS = {
+        "social": [
+            "facebook.com", "pinterest.com", "youtube.com",
+            "twitter.com", "x.com", "linkedin.com",
+            "instagram.com", "tiktok.com", "reddit.com", "threads.net"
+        ],
+        "media": [
+            "youtu.be", "vimeo.com", "twitch.tv"
+        ],
+        "mensageria": [
+            "wa.me", "whatsapp.com", "t.me",
+            "telegram.me", "discord.gg", "discord.com"
+        ]
+    }
+    encontrados: Set[str] = set()
+    emails: Set[str] = set()
+
     for url in chaves:
         if url not in dados or not isinstance(dados[url], dict):
             continue
-        if not (url.endswith(".js") or url.endswith(".mjs")):
-            links = dados[url]["links"]
-            for redes in links:
-                if "www.facebook.com" in redes or "www.pinterest.com" in redes or "www.youtube.com/c/" in redes or "twitter.com" in redes or "www.linkedin":
-                    encontrados.add(redes)
-                if redes.startswith("mailto:"):
-                    email = redes[7:]  # remove "mailto:"
-                    encontrados.add(email)
-    for i in encontrados:
-        print(f"[+] {i}")
+
+        if url.endswith((".js", ".mjs")):
+            continue
+
+        links = dados[url].get("links", [])
+
+        for link in links:
+            link_lower = link.lower()
+
+            if link_lower.startswith("mailto:"):
+                email = link[7:]
+                emails.add(email)
+                continue
+
+            for categoria, padroes in REDES_PATTERNS.items():
+                if any(p in link_lower for p in padroes):
+                    encontrados.add(link)
+                    break
+
+    print("\n[+] Redes encontradas:")
+    for i in sorted(encontrados):
+        print(f"  → {i}")
+
+    print("\n[+] Emails encontrados:")
+    for e in sorted(emails):
+        print(f"  → {e}")
 def help():
     print("Comandos válidos:\n")
     print("gets - Mostra todos os endpoints com parametros GET")
@@ -107,7 +140,7 @@ def subdomain(chaves, dados, dominio):
                 encontrados.add(base)
 
     for item in encontrados:
-        print(f"- {item}")
+        print(f"  → {item}")
 def gets(chaves, dados, alvo):
     validos = set()
     for url in chaves:
@@ -119,7 +152,7 @@ def gets(chaves, dados, alvo):
                 if parametros and "?" in parametros and parametros.startswith(alvo):
                     validos.add(parametros)
     for i in validos:
-        print(f"- {i}")
+        print(f"  → {i}")
 def posts(chaves, dados):
     for url in chaves:
         if url not in dados or not isinstance(dados[url], dict):
@@ -128,7 +161,7 @@ def posts(chaves, dados):
             parametros = dados[url]["post"]
             if parametros:
                 print(url)
-                print(f"{parametros}\n")
+                print(f"  → {parametros}\n")
 
 def js(chaves, dados, dominio, comando, alvo):
     instrucoes = {
@@ -137,7 +170,7 @@ def js(chaves, dados, dominio, comando, alvo):
         "amarelo": Fore.YELLOW + "Amarelo: Superficie de ataque" + Fore.RESET,
         "vermelho": Fore.RED + "Vermelho: informação grave!!" + Fore.RESET
     }
-    def codigo_js():
+    def codigo_js() -> str:
         codigo_final = ""
         for url in tqdm(chaves, desc="Especionando código"):
             if url.endswith(".js") or url.endswith(".mjs"):
@@ -198,13 +231,33 @@ def js(chaves, dados, dominio, comando, alvo):
             pass
 
     def mostrarDados(info, tipo):
-        def tipos(valor):
-            if "api" in valor or "admin" in valor or "account" in valor or "login" in valor or "supabase.co" in valor or "firebase" in valor or "firestore" in valor or "amazonaws.com" in valor:
+        PADROES = {
+            "sensivel": [
+                "api", "admin", "account", "login",
+                "supabase.co", "firebase", "firestore", "amazonaws.com"
+            ],
+            "parametro": [
+                "?", "googleapis.com"
+            ],
+            "interessante": [
+                "auth", "token", "key", "secret", "private",
+                "webhook", "callback", "session", "config"
+            ]
+        }
+
+        def tipos(valor: str) -> str:
+            valor_lower = valor.lower()
+
+            if any(p in valor_lower for p in PADROES["sensivel"]):
                 return Fore.YELLOW + valor + Fore.RESET
-            if "?" in valor or "googleapis.com" in valor:
+
+            if any(p in valor_lower for p in PADROES["parametro"]):
                 return Fore.BLUE + valor + Fore.RESET
-            else:
-                return valor
+
+            if any(p in valor_lower for p in PADROES["interessante"]):
+                return Fore.YELLOW + valor + Fore.RESET
+
+            return valor
 
         fora_escopo = []
         escopo = []
