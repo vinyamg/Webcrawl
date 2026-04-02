@@ -1,6 +1,6 @@
 import json
 import tldextract
-from .funcoes import js, subdomain, gets, posts, help, social
+from .funcoes import js, subdomain, gets, posts, help, social, arquivoTipo
 import os
 def shell():
     while True:
@@ -46,6 +46,8 @@ def shell():
                     js(chaves, dados, dominio, comando, alvo)
                 elif comando == "social":
                     social(chaves, dados)
+                elif comando.startswith("ext"):
+                    arquivoTipo(chaves, dados, comando)
                 elif comando == "exit":
                     print("bye bye")
                     break
@@ -53,7 +55,8 @@ def shell():
                     help()
                 else:
                     print("Comando inválido.")
-            except Exception:
+            except Exception as e:
+                print(e)
                 print("Algo deu errado.")
 
 

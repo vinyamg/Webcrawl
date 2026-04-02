@@ -1,14 +1,18 @@
 from colorama import Fore
 import re
 from tqdm import tqdm
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 class codigo_regexs:
     ajax = r"\$\.ajax\(\{\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)"
+    ajaxGetPost = r"\$\.(get|post)\(\{\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)"
     #ajax = r"\$\.ajax\(\{\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)"
-    fetch = r'fetch\(.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)'
+    fetch = r'fetch\s*\(.*?\)'
+    axios = r"axios\.\w+\(.*?\)"
+    webSocket = r"new\s*WebSocket\(.*?\)"
+    xmlHttpRequest = r"\.open\(['`\"](GET|POST|PUT|DELETE|PATCH)['`\"]\,.*?\)"
     http_request = r'this\.\w+\.\w+\(.*\s.*\s.*\s.*\s.*\s.*\s.*\s.*\)'
-    pattern = [ajax, fetch, http_request]
+    pattern = [ajax, fetch, http_request, ajaxGetPost, axios, webSocket, xmlHttpRequest]
 
     variaveis = r".*=.*"
     palavrasChavesVetores = r"\b(admin|role|Cookies.set|Cookies.get|Cookies.remove|userRole)\b"
@@ -49,6 +53,17 @@ class sensive:
     }
 
 
+def arquivoTipo(chaves, dados, comando):
+    for url in chaves:
+        if url not in dados or not isinstance(dados[url], dict):
+            continue
+        links = dados[url]["links"]
+        for urlLink in links:
+            parsed = urlparse(urlLink)
+            urlsParametros = urlunparse(parsed._replace(query=""))
+            extensao = comando[4:]
+            if urlsParametros.endswith(extensao):
+                print(f"[+] {urlsParametros}")
 def social(chaves, dados):
     encontrados = set()
     for url in chaves:
@@ -57,7 +72,7 @@ def social(chaves, dados):
         if not (url.endswith(".js") or url.endswith(".mjs")):
             links = dados[url]["links"]
             for redes in links:
-                if "www.facebook.com" in redes or "www.pinterest.com" in redes or "www.youtube.com/c/" in redes or "twitter.com" in redes:
+                if "www.facebook.com" in redes or "www.pinterest.com" in redes or "www.youtube.com/c/" in redes or "twitter.com" in redes or "www.linkedin":
                     encontrados.add(redes)
                 if redes.startswith("mailto:"):
                     email = redes[7:]  # remove "mailto:"
@@ -70,7 +85,8 @@ def help():
     print("Posts - Mostra todos os endpoints com parametros POST")
     print("subdomains - Mostra todos os subdominios descobertos")
     print("social - Mostra todas as redes sociais encontradas")
-    print("js <comando>\n  - search\n  - reverse")
+    print("ext <extensão> - Mostra urls com a determinada extensão\n  .jpg, .js, .json, etc")
+    print("js <comando> - Função de analise de código JavaScript\n  - search\n  - reverse")
     print()
 def subdomain(chaves, dados, dominio):
     encontrados = set()
@@ -173,6 +189,11 @@ def js(chaves, dados, dominio, comando, alvo):
                     verificacao = classificacao(i)
                     if verificacao:
                         print(f"\n[+] Achado['{origem}']:\n\n{verificacao}")
+        elif comando.startswith("value"):
+            nome = comando[6:]
+            procura = re.search(fr"{nome}\s*=\s.*", codigo, re.IGNORECASE)
+            if procura:
+                print(f"\n[+] Achado['{origem}']:\n\n{procura.group(0)}")
         else:
             pass
 
@@ -251,7 +272,7 @@ def js(chaves, dados, dominio, comando, alvo):
             if comando == "exit":
                 break
             if comando == "help":
-                print("\nComandos:\n - requests > Mostra requisições fetch, ajax, axios, etc\n - variaveis > Mostra variaveis com valores uteis")
+                print("\nComandos:\n - requests > Mostra requisições fetch, ajax, axios, etc\n - variaveis > Mostra variaveis com valores uteis\n - value <nomeVariavel> > Descubra o valor de uma variavel")
             for url in chaves:
                 if url not in dados or not isinstance(dados[url], dict):
                     continue

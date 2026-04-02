@@ -117,7 +117,6 @@ def crawler(url, tempo, agent, tor):
             print("Considere ativar o serviço tor: 'sudo service tor start'")
             return
     print(f"[+] Alvo: {url}\n")
-
     def requisicao(url_path):
         if url_path.startswith(url):
             try:
@@ -167,8 +166,10 @@ def crawler(url, tempo, agent, tor):
         verificacao = requests.get(url, headers=headers, timeout=5, proxies=proxiesTor)
         if verificacao.status_code == 403:
             print("🚫 Bloqueado (provável Tor)")
+            return
         elif verificacao.status_code == 503:
             print("⚠️ Possível bloqueio / proteção")
+            return
     requisicao(url) #principal
     urls_visitadas = [url]
     vezes = []
@@ -191,7 +192,7 @@ def crawler(url, tempo, agent, tor):
                 total = len(urls_completa)
                 requisicao(i)
                 urls_visitadas.append(i)
-                sys.stdout.write(f"\rRestantes: {len(vezes)}/{total} > {i.ljust(200)}")
+                sys.stdout.write(f"\rRestantes: {len(vezes)}/{total} > {i.ljust(180)}")
                 sys.stdout.flush()
 
         with open(f"alvos/{dominio}.json", "w", encoding="utf-8") as f:
