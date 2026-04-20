@@ -117,6 +117,66 @@ def crawler(url, tempo, agent, tor):
             print("Considere ativar o serviço tor: 'sudo service tor start'")
             return
     print(f"[+] Alvo: {url}\n")
+
+    def deteccaoBloqueio(html, status_code):
+        html_lower = html.lower()
+
+
+        captcha_keywords = [
+            "captcha",
+            "recaptcha",
+            "g-recaptcha",
+            "hcaptcha",
+            "i am not a robot",
+            "verify you are human"
+        ]
+
+        protection_keywords = [
+            "checking your browser",
+            "attention required",
+            "cf-browser-verification",
+            "ray id",
+            "just a moment..."
+        ]
+
+        block_keywords = [
+            "access denied",
+            "forbidden",
+            "too many requests",
+            "rate limit",
+            "unusual traffic",
+            "automated queries"
+        ]
+
+        resultado = {
+            "bloqueio": False,
+            "captcha": False,
+            "tipos": [],
+            "codigo": None
+        }
+
+        # 🤖 CAPTCHA
+        for palavra in captcha_keywords:
+            if palavra in html_lower:
+                resultado["captcha"] = True
+                resultado["tipos"].append(f"captcha:{palavra}")
+                resultado["codigo"] = status_code
+
+        # ☁️ Proteções
+        for palavra in protection_keywords:
+            if palavra in html_lower:
+                resultado["bloqueio"] = True
+                resultado["tipos"].append(f"{palavra}")
+                resultado["codigo"] = status_code
+
+        # 🚫 Bloqueios
+        for palavra in block_keywords:
+            if palavra in html_lower:
+                resultado["bloqueio"] = True
+                resultado["tipos"].append(f"{palavra}")
+                resultado["codigo"] = status_code
+
+        return resultado
     def requisicao(url_path):
         if url_path.startswith(url):
             try:
@@ -124,6 +184,7 @@ def crawler(url, tempo, agent, tor):
                     requisicao = requests.get(url_path, headers=headers, proxies=proxiesTor, timeout=5)
                 else:
                     requisicao = requests.get(url_path, headers=headers, timeout=5)
+                bloqueio = deteccaoBloqueio(requisicao.text, requisicao.status_code)
                 if requisicao.status_code == 200:
                     requisicao = requisicao.text
                     if url_path.endswith(".js") or url_path.endswith(".mjs"):
@@ -134,9 +195,13 @@ def crawler(url, tempo, agent, tor):
                         for i in [resultado["links"], resultado["css"], resultado["scripts_externos"]]:
                             divisao(i)
                             time.sleep(tempo)
-                elif requisicao.status_code == 429:
-                    print("\nRate Limited excedido, esperando 10s, caso não resolva, considere o -t\n")
+                elif bloqueio["bloqueio"] and (bloqueio["codigo"] == 403 or bloqueio["codigo"] == 401 or bloqueio["codigo"] == 429):
+                    print(f"\n[+] Bloqueio detectado: heuristicas{bloqueio["tipos"]} | esperando 10s, caso não resolva, considere o -t\n")
                     time.sleep(10)
+                elif bloqueio["captcha"] and (bloqueio["codigo"] == 403 or bloqueio["codigo"] == 401 or bloqueio["codigo"] == 429):
+                    print(f"\n[+] Captcha detectado: heuristicas{bloqueio["tipos"]} | esperando 10s, caso não resolva, considere o -t\n")
+                    time.sleep(10)
+
             except requests.exceptions.Timeout:
                 pass
             except requests.exceptions.TooManyRedirects:
@@ -164,11 +229,9 @@ def crawler(url, tempo, agent, tor):
     inicio = time.time()
     if tor:
         verificacao = requests.get(url, headers=headers, timeout=5, proxies=proxiesTor)
-        if verificacao.status_code == 403:
-            print("🚫 Bloqueado (provável Tor)")
-            return
-        elif verificacao.status_code == 503:
-            print("⚠️ Possível bloqueio / proteção")
+        bloqueio = deteccaoBloqueio(verificacao.text, verificacao.status_code)
+        if bloqueio["bloqueio"] or bloqueio["captcha"]:
+            print("O servidor está bloqueando o proxy")
             return
     requisicao(url) #principal
     urls_visitadas = [url]

@@ -185,7 +185,7 @@ def js(chaves, dados, dominio, comando, alvo):
         for i in valores:
             if (i.startswith("https://") or i.startswith("http://")) and len(i) > 10:
                 urls.append(i)
-            elif (i.startswith("/") or i.startswith("//") or i.startswith("./") or i.startswith("\\")) and len(i) > 3 and not i.startswith(r"\u"):
+            elif (i.startswith("/") or i.startswith("//") or i.startswith("./") or i.startswith("\\") or i.startswith("../") or i.startswith("/..")) and len(i) > 3 and not i.startswith(r"\u"):
                 if ":" in i or ";" in i or "{" in i or "}" in i or "!" in i or " " in i or ")" in i or "(" in i or '"' in i:
                     pass
                 else:
