@@ -1,4 +1,4 @@
-# 🕷️ WebCrawler Enumeration Pentest
+# WebCrawler Enumeration Pentest
 
 Ferramenta de **enumeração automatizada** para coleta e análise de recursos web, focada na identificação de **endpoints, parâmetros, e possíveis vetores de ataque** em aplicações web.
 
@@ -6,23 +6,23 @@ Projetada como apoio para atividades de **pentest** e **bug bounty**.
 
 ---
 
-## 🚀 Funcionalidades
+## Funcionalidades
 
-- 🔎 **Crawling completo do alvo**
+- **Crawling completo do alvo**
   - Descobre endpoints, URLs, paths e arquivos relevantes
   - Coleta conteúdos HTML e JavaScript
 
-- 📦 **Análise de código JavaScript**
+- **Análise de código JavaScript**
   - Extração de endpoints
   - Identificação de tokens e possíveis credenciais
   - Detecção de requisições internas (APIs)
 
-- 🧠 **Enumeração inteligente**
+- **Enumeração inteligente**
   - Identificação de parâmetros GET e POST, subdomínios, links de redes sociais
   - Classificação de informações coletadas
   - Organização dos dados para análise posterior
 
-- 💻 **Shell interativa**
+- **Shell interativa**
   - Interface para explorar os dados coletados
   - Comandos disponíveis:
     - `gets` → lista endpoints com parâmetros GET
@@ -34,17 +34,17 @@ Projetada como apoio para atividades de **pentest** e **bug bounty**.
 
 ---
 
-## 🛠️ Modo de uso
+## Modo de uso
 
-### 🔹 Exibir ajuda
+### Exibir ajuda
 ```bash
 python webcrawl.py -h
 ```
-### 🔹 Executar enumeração
+### Executar enumeração
 ```bash
 python webcrawl.py --url <alvo>
 ```
-### 🔹 Executar análise
+### Executar análise
 ```bash
 python webcrawl.py --analyze
 ```
