@@ -16,6 +16,7 @@ Projetada como apoio para atividades de **pentest** e **bug bounty**.
   - Extração de endpoints
   - Identificação de tokens e possíveis credenciais
   - Detecção de requisições internas (APIs)
+  - Detecção de entradas de usuários
 
 - **Enumeração inteligente**
   - Identificação de parâmetros GET e POST, subdomínios, links de redes sociais

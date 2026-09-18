@@ -1,52 +1,47 @@
 import requests
 from bs4 import BeautifulSoup
-import json
 from bs4 import XMLParsedAsHTMLWarning
 import warnings
 import sys
 import time
 import tldextract
-import os
-from urllib.parse import urlparse, urlunparse
 import random
+from urllib.parse import urlparse, urlunparse, urljoin
+
+from . import db
+from .config import (
+    USER_AGENTS,
+    DEFAULT_USER_AGENT,
+    PROXIES_TOR,
+    CAPTCHA_KEYWORDS,
+    PROTECTION_KEYWORDS,
+    BLOCK_KEYWORDS,
+    STATUS_CODES_BLOQUEIO,
+    EXTENSOES_INUTEIS,
+)
+
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
 def coleta(html):
-    warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(html, "html.parser")
 
-    # Links <a>
-    hrefs = {
-        link.get('href')
-        for link in soup.find_all('a')
-        if link.get('href')
-    }
+    hrefs = {link.get("href") for link in soup.find_all("a") if link.get("href")}
 
-    # Scripts externos <script src="">
-    srcs = {
-        script.get('src')
-        for script in soup.find_all('script')
-        if script.get('src')
-    }
+    srcs = {script.get("src") for script in soup.find_all("script") if script.get("src")}
 
-    # Scripts inline <script>...</script>
     inline_scripts = {
         script.string.strip()
-        for script in soup.find_all('script')
+        for script in soup.find_all("script")
         if script.string and script.string.strip()
     }
 
-    # CSS <link href="">
-    css_links = {
-        link.get('href')
-        for link in soup.find_all('link')
-        if link.get('href')
-    }
-    # NAME <input name="">
+    css_links = {link.get("href") for link in soup.find_all("link") if link.get("href")}
+
     names = {
-        input_tag.get('name')
-        for input_tag in soup.find_all('input')
-        if input_tag.get('name')
+        input_tag.get("name")
+        for input_tag in soup.find_all("input")
+        if input_tag.get("name")
     }
 
     return {
@@ -54,219 +49,196 @@ def coleta(html):
         "scripts_externos": list(srcs),
         "scripts_inline": list(inline_scripts),
         "css": list(css_links),
-        "post": list(names)
+        "post": list(names),
     }
 
 
-def crawler(url, tempo, agent, tor):
+def mesmo_dominio(url_path, url_base):
+    try:
+        return urlparse(url_path).netloc == urlparse(url_base).netloc
+    except ValueError:
+        return False
+
+
+def detectar_bloqueio(html, status_code):
+    html_lower = html.lower()
+    resultado = {"bloqueio": False, "captcha": False, "tipos": [], "codigo": status_code}
+
+    for palavra in CAPTCHA_KEYWORDS:
+        if palavra in html_lower:
+            resultado["captcha"] = True
+            resultado["tipos"].append(f"captcha:{palavra}")
+
+    for palavra in PROTECTION_KEYWORDS:
+        if palavra in html_lower:
+            resultado["bloqueio"] = True
+            resultado["tipos"].append(palavra)
+
+    for palavra in BLOCK_KEYWORDS:
+        if palavra in html_lower:
+            resultado["bloqueio"] = True
+            resultado["tipos"].append(palavra)
+
+    return resultado
+
+
+def crawler(url, tempo, agent, tor, max_paginas=None, tentativas_bloqueio=3, resume=False):
     ext = tldextract.extract(url)
-    dominio = ext.domain + '.' + ext.suffix
-    if os.path.exists(f"alvos/{dominio}.json"):
-        print("Esse alvo já foi coletado, use --analyze")
-        return
-    user_agents = [
-        # Windows - Chrome / Edge
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.95 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.184 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edg/121.0.2277.128 Safari/537.36",
-        # macOS - Safari / Chrome
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.184 Safari/537.36",
-        # Linux - Chrome / Firefox
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.224 Safari/537.36",
-        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        # Android - Chrome
-        "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.101 Mobile Safari/537.36",
-        "Mozilla/5.0 (Linux; Android 12; Redmi Note 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.230 Mobile Safari/537.36",
-        # iPhone - Safari / Chrome
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0.6099.71 Mobile/15E148 Safari/604.1",
-        # iPad
-        "Mozilla/5.0 (iPad; CPU OS 16_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.7 Mobile/15E148 Safari/604.1",
-        # Firefox Windows
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        # Edge moderno
-        "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.95 Safari/537.36 Edg/122.0.2365.66"
-    ]
-    proxiesTor = {
-        "http": "socks5h://127.0.0.1:9050",
-        "https": "socks5h://127.0.0.1:9050"
-    }
-    if agent:
-        headers = {
-            "User-Agent": random.choice(user_agents)
-        }
-    else:
-        headers = {
-            "User-Agent": "webCrawler/Tool"
-        }
+    dominio = ext.domain + "." + ext.suffix
 
-    urls_completa = []
-    dados_gerais = {}
+    ja_existe = db.existe_alvo(dominio)
+    if ja_existe and not resume:
+        print("Esse alvo já foi coletado. Use --analyze para revisar, ou --resume para continuar a coleta.")
+        return
+
+    conn = db.conectar(dominio)
+    db.gravar_metadata(conn, url, dominio)
+
+    if agent:
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+    else:
+        headers = {"User-Agent": DEFAULT_USER_AGENT}
+
     if tor:
         try:
-            response = requests.get(
-                "https://httpbin.org/ip",
-                proxies=proxiesTor,
-                timeout=10
-            )
+            resp_teste = requests.get("https://httpbin.org/ip", proxies=PROXIES_TOR, timeout=10)
             print("Proxy funcionando!")
-            print("IP:", response.json())
-        except Exception as e:
+            print("IP:", resp_teste.json())
+        except Exception:
             print("Proxy não está funcionando")
             print("Considere ativar o serviço tor: 'sudo service tor start'")
+            conn.close()
             return
-    print(f"[+] Alvo: {url}\n")
 
-    def deteccaoBloqueio(html, status_code):
-        html_lower = html.lower()
-
-
-        captcha_keywords = [
-            "captcha",
-            "recaptcha",
-            "g-recaptcha",
-            "hcaptcha",
-            "i am not a robot",
-            "verify you are human"
-        ]
-
-        protection_keywords = [
-            "checking your browser",
-            "attention required",
-            "cf-browser-verification",
-            "ray id",
-            "just a moment..."
-        ]
-
-        block_keywords = [
-            "access denied",
-            "forbidden",
-            "too many requests",
-            "rate limit",
-            "unusual traffic",
-            "automated queries"
-        ]
-
-        resultado = {
-            "bloqueio": False,
-            "captcha": False,
-            "tipos": [],
-            "codigo": None
-        }
-
-        # 🤖 CAPTCHA
-        for palavra in captcha_keywords:
-            if palavra in html_lower:
-                resultado["captcha"] = True
-                resultado["tipos"].append(f"captcha:{palavra}")
-                resultado["codigo"] = status_code
-
-        # ☁️ Proteções
-        for palavra in protection_keywords:
-            if palavra in html_lower:
-                resultado["bloqueio"] = True
-                resultado["tipos"].append(f"{palavra}")
-                resultado["codigo"] = status_code
-
-        # 🚫 Bloqueios
-        for palavra in block_keywords:
-            if palavra in html_lower:
-                resultado["bloqueio"] = True
-                resultado["tipos"].append(f"{palavra}")
-                resultado["codigo"] = status_code
-
-        return resultado
-    def requisicao(url_path):
-        if url_path.startswith(url):
-            try:
-                if tor:
-                    requisicao = requests.get(url_path, headers=headers, proxies=proxiesTor, timeout=5)
-                else:
-                    requisicao = requests.get(url_path, headers=headers, timeout=5)
-                bloqueio = deteccaoBloqueio(requisicao.text, requisicao.status_code)
-                if requisicao.status_code == 200:
-                    requisicao = requisicao.text
-                    if url_path.endswith(".js") or url_path.endswith(".mjs"):
-                        dados_gerais[url_path] = requisicao
-                    else:
-                        resultado = coleta(requisicao)
-                        dados_gerais[url_path] = resultado
-                        for i in [resultado["links"], resultado["css"], resultado["scripts_externos"]]:
-                            divisao(i)
-                            time.sleep(tempo)
-                elif bloqueio["bloqueio"] and (bloqueio["codigo"] == 403 or bloqueio["codigo"] == 401 or bloqueio["codigo"] == 429):
-                    print(f"\n[+] Bloqueio detectado: heuristicas{bloqueio["tipos"]} | esperando 10s, caso não resolva, considere o -t\n")
-                    time.sleep(10)
-                elif bloqueio["captcha"] and (bloqueio["codigo"] == 403 or bloqueio["codigo"] == 401 or bloqueio["codigo"] == 429):
-                    print(f"\n[+] Captcha detectado: heuristicas{bloqueio["tipos"]} | esperando 10s, caso não resolva, considere o -t\n")
-                    time.sleep(10)
-
-            except requests.exceptions.Timeout:
-                pass
-            except requests.exceptions.TooManyRedirects:
-                pass
-            except requests.exceptions.RequestException as e:
-                pass
-        else:
-            pass
-
-    def divisao(dados):  # codigo onde divide url e diretorio
-        for dado in dados:
-            if isinstance(dado, str):
-                if dado.startswith("/") or dado.startswith("//") or dado.startswith('./'):
-                    if dado.startswith("//") or dado.startswith('./'):
-                        urls_completa.append(url + dado[1:])
-                    else:
-                        urls_completa.append(url + dado)
-                elif dado.startswith("https") or dado.startswith("http"):
-                    urls_completa.append(dado)
-                else:
-                    pass
-            else:
-                pass
-        urls_completa[:] = list(dict.fromkeys(urls_completa))
-    inicio = time.time()
-    if tor:
-        verificacao = requests.get(url, headers=headers, timeout=5, proxies=proxiesTor)
-        bloqueio = deteccaoBloqueio(verificacao.text, verificacao.status_code)
+        verificacao = requests.get(url, headers=headers, timeout=5, proxies=PROXIES_TOR)
+        bloqueio = detectar_bloqueio(verificacao.text, verificacao.status_code)
         if bloqueio["bloqueio"] or bloqueio["captcha"]:
             print("O servidor está bloqueando o proxy")
+            conn.close()
             return
-    requisicao(url) #principal
-    urls_visitadas = [url]
-    vezes = []
-    extensoes_inuteis = (
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".ico", ".bmp", ".tiff", ".heic",
-        ".mp4", ".mkv", ".mov", ".avi", ".webm", ".mp3", ".wav", ".ogg", ".flac",
-        ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".zip", ".rar", ".7z", ".tar", ".gz", ".iso",
-        ".woff", ".woff2", ".ttf", ".otf", ".eot",
-        ".exe", ".bin", ".apk", ".dmg", ".msi", ".dll", ".css", ".xml"
-    )
+
+    print(f"[+] Alvo: {url}\n")
+
+    # --- estado do crawl -----------------------------------------------
+    urls_completa = []
+    visitadas = set()
+
+    if ja_existe and resume:
+        visitadas = db.urls_coletadas(conn)
+        pendentes = db.frontier_pendente(conn)
+        urls_completa.extend(pendentes)
+        print(f"[+] Retomando: {len(visitadas)} páginas já coletadas, {len(pendentes)} pendentes na fila\n")
+    # ---------------------------------------------------------------------
+
+    def fazer_requisicao_http(url_path):
+        if tor:
+            return requests.get(url_path, headers=headers, proxies=PROXIES_TOR, timeout=5)
+        return requests.get(url_path, headers=headers, timeout=5)
+
+    def resolver_absolutas(lista, url_pagina_atual):
+        resolvidas = []
+        for item in lista:
+            if not isinstance(item, str) or not item.strip():
+                continue
+            if item.startswith("javascript:") or item.startswith("#"):
+                continue
+            resolvidas.append(urljoin(url_pagina_atual, item))
+        return resolvidas
+
+    def enfileirar(lista):
+        for item in lista:
+            if item.startswith("mailto:"):
+                continue
+            urls_completa.append(item)
+
+    def requisicao(url_path):
+        if not mesmo_dominio(url_path, url):
+            return
+        if db.pagina_ja_coletada(conn, url_path):
+            return
+
+        for tentativa in range(tentativas_bloqueio):
+            try:
+                resp = fazer_requisicao_http(url_path)
+            except requests.exceptions.Timeout:
+                return
+            except requests.exceptions.TooManyRedirects:
+                return
+            except requests.exceptions.RequestException:
+                return
+
+            if resp.status_code == 200:
+                texto = resp.text
+                if url_path.endswith(".js") or url_path.endswith(".mjs"):
+                    db.salvar_pagina_js(conn, url_path, texto)
+                else:
+                    bruto = coleta(texto)
+                    resultado = {
+                        "links": resolver_absolutas(bruto["links"], url_path),
+                        "scripts_externos": resolver_absolutas(bruto["scripts_externos"], url_path),
+                        "scripts_inline": bruto["scripts_inline"],  # não são URLs, não precisam de resolução
+                        "css": resolver_absolutas(bruto["css"], url_path),
+                        "post": bruto["post"],
+                    }
+                    db.salvar_pagina_html(conn, url_path, resultado)
+                    for lista in (resultado["links"], resultado["css"], resultado["scripts_externos"]):
+                        enfileirar(lista)
+                if tempo:
+                    time.sleep(tempo)
+                return
+
+            bloqueio = detectar_bloqueio(resp.text, resp.status_code)
+            bloqueado = (bloqueio["bloqueio"] or bloqueio["captcha"]) and resp.status_code in STATUS_CODES_BLOQUEIO
+
+            if bloqueado:
+                tipo_msg = "Bloqueio" if bloqueio["bloqueio"] else "Captcha"
+                espera = 10 * (tentativa + 1)
+                print(f"\n[+] {tipo_msg} detectado: heurísticas {bloqueio['tipos']} | tentativa {tentativa + 1}/{tentativas_bloqueio}, esperando {espera}s\n")
+                time.sleep(espera)
+                continue
+
+            return  # status não-200 e não identificado como bloqueio: desiste dessa URL
+
+        print(f"[!] Desisti de {url_path} após {tentativas_bloqueio} tentativas (seguindo bloqueado)")
+
+    inicio = time.time()
+
+    if not (ja_existe and resume and url in visitadas):
+        requisicao(url)
+    visitadas.add(url)
+
     try:
-        for i in urls_completa:
-            parsed = urlparse(i)
-            i = urlunparse(parsed._replace(query=""))
-            if i in urls_visitadas or not i.startswith(url) or i.endswith(extensoes_inuteis):
-                vezes.append(i)
-                pass
-            else:
-                vezes.append(i)
-                total = len(urls_completa)
-                requisicao(i)
-                urls_visitadas.append(i)
-                sys.stdout.write(f"\rRestantes: {len(vezes)}/{total} > {i.ljust(180)}")
-                sys.stdout.flush()
+        indice = 0
+        while indice < len(urls_completa):
+            if max_paginas is not None and len(visitadas) >= max_paginas:
+                print(f"\n[+] Limite de {max_paginas} páginas atingido, encerrando coleta")
+                break
 
-        with open(f"alvos/{dominio}.json", "w", encoding="utf-8") as f:
-            json.dump(dados_gerais, f, ensure_ascii=False, indent=4)
-            final = time.time()
-            tempo = round((final - inicio) / 60, 2)
-            print(f"\nCrawler completo, informações salvas - Tempo: {tempo}/min")
+            bruta = urls_completa[indice]
+            indice += 1
+
+            parsed = urlparse(bruta)
+            url_normalizada = urlunparse(parsed._replace(query=""))
+
+            if (
+                url_normalizada in visitadas
+                or not mesmo_dominio(url_normalizada, url)
+                or url_normalizada.lower().endswith(EXTENSOES_INUTEIS)
+            ):
+                continue
+
+            requisicao(url_normalizada)
+            visitadas.add(url_normalizada)
+            sys.stdout.write(f"\rDescobertas: {len(urls_completa)} | Visitadas: {len(visitadas)}")
+            sys.stdout.flush()
+
+        duracao = round((time.time() - inicio) / 60, 2)
+        print(f"\nCrawler completo - {db.contar_paginas(conn)} páginas salvas em alvos/{dominio}.db - Tempo: {duracao}/min")
+
     except KeyboardInterrupt:
-        with open(f"alvos/{dominio}.json", "w", encoding="utf-8") as f:
-            json.dump(dados_gerais, f, ensure_ascii=False, indent=4)
-            final = time.time()
-            tempo = round((final - inicio) / 60, 2)
-            print(f"\nCrawler terminado, informações salvas - Tempo: {tempo}/min")
+        duracao = round((time.time() - inicio) / 60, 2)
+        print(f"\nCrawler interrompido - {db.contar_paginas(conn)} páginas já estão salvas em alvos/{dominio}.db - Tempo: {duracao}/min")
+        print("Use --resume na próxima execução para continuar de onde parou.")
 
+    finally:
+        conn.close()
