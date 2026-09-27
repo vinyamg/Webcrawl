@@ -145,16 +145,30 @@ def salvar_pagina_js(conn: sqlite3.Connection, url: str, codigo: str) -> None:
 
 
 def frontier_pendente(conn: sqlite3.Connection) -> list:
-    descobertas = set()
-    for (href,) in conn.execute("SELECT DISTINCT href FROM links").fetchall():
-        descobertas.add(href)
-    for (src,) in conn.execute("SELECT DISTINCT src FROM scripts_externos").fetchall():
-        descobertas.add(src)
-    for (href,) in conn.execute("SELECT DISTINCT href FROM css").fetchall():
-        descobertas.add(href)
+    descobertas = {}
+    for href, origem in conn.execute("SELECT href, url_origem FROM links").fetchall():
+        descobertas.setdefault(href, origem)
+    for src, origem in conn.execute("SELECT src, url_origem FROM scripts_externos").fetchall():
+        descobertas.setdefault(src, origem)
+    for href, origem in conn.execute("SELECT href, url_origem FROM css").fetchall():
+        descobertas.setdefault(href, origem)
 
     coletadas = urls_coletadas(conn)
-    return [u for u in descobertas if u not in coletadas]
+    return [(u, origem) for u, origem in descobertas.items() if u not in coletadas]
+
+
+def salvar_descobertas_js(conn: sqlite3.Connection, descobertas: list) -> int:
+    novos = 0
+    for origem, url_js in descobertas:
+        ja_existe = conn.execute(
+            "SELECT 1 FROM scripts_externos WHERE url_origem = ? AND src = ?", (origem, url_js)
+        ).fetchone()
+        if ja_existe:
+            continue
+        conn.execute("INSERT INTO scripts_externos (url_origem, src) VALUES (?, ?)", (origem, url_js))
+        novos += 1
+    conn.commit()
+    return novos
 
 
 def listar_alvos() -> list:

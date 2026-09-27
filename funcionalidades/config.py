@@ -25,6 +25,10 @@ USER_AGENTS = [
 
 DEFAULT_USER_AGENT = "webCrawler/Tool"
 
+ACCEPT_PADRAO = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+ACCEPT_LANGUAGE_PADRAO = "en-US,en;q=0.9"
+ACCEPT_ENCODING_PADRAO = "gzip, deflate"
+
 PROXIES_TOR = {
     "http": "socks5h://127.0.0.1:9050",
     "https": "socks5h://127.0.0.1:9050",

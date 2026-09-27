@@ -1,9 +1,11 @@
 from colorama import Fore
 import re
 from tqdm import tqdm
-from urllib.parse import urlparse, urlunparse, parse_qs
+from urllib.parse import urlparse, urlunparse, urljoin, parse_qs
 from typing import Set
 
+from . import db
+from .Crawler import dominio_base
 from .config import codigo_regexs, SECRET_PATTERNS, STRING_LITERAL_PATTERNS, ENTRADAS_USUARIO, SINKS_PERIGOSOS
 
 MODIFICADORES_TUDO = ("tudo", "all", "completo")
@@ -195,7 +197,7 @@ def help():
     print("ext <extensão> - Mostra urls com a determinada extensão\n  .jpg, .js, .json, etc")
     print(
         "js <comando> - Função de analise de código JavaScript\n"
-        "  - search (shell própria: stats, endpoints, tokens, grep)\n"
+        "  - search (shell própria: stats, endpoints, tokens, grep, descobrir-js)\n"
         "  - reverse (requests, variaveis, value, entradas, sinks, fluxo)"
     )
     print("\nAdicione 'tudo' no final de qualquer comando acima para ver todas as")
@@ -365,7 +367,7 @@ def grep_strings(todos_valores, tokens_encontrados, termo, mostrar_tudo=False):
         )
 
 
-def js_search(paginas_com_codigo, dominio):
+def js_search(conn, paginas_com_codigo, dominio):
     todos_valores = set()
     tokens_encontrados = []
 
@@ -399,6 +401,9 @@ def js_search(paginas_com_codigo, dominio):
                 "  endpoints       → URLs e caminhos encontrados, por escopo\n"
                 "  tokens          → tokens/segredos encontrados, agrupados por tipo\n"
                 "  grep <termo>    → procura <termo> nas strings brutas e nos tokens\n"
+                "  descobrir-js    → acha .js referenciado DENTRO do código (imports\n"
+                "                    dinâmicos, chunks de bundler, etc) e salva para o\n"
+                "                    --resume buscar na próxima coleta\n"
                 "\n"
                 "  Adicione 'tudo' no final de qualquer comando para ver todas as\n"
                 "  ocorrências sem limite (ex: 'endpoints tudo', 'grep token tudo').\n"
@@ -416,8 +421,88 @@ def js_search(paginas_com_codigo, dominio):
                 print("Uso: grep <termo> [tudo]")
             else:
                 grep_strings(todos_valores, tokens_encontrados, termo, mostrar_tudo)
+        elif comando in ("descobrir-js", "descobrir", "salvar-js"):
+            comando_descobrir_js(conn, paginas_com_codigo, dominio, mostrar_tudo)
         else:
             print("Comando inválido. Digite 'help' para ver as opções.")
+
+
+def parece_referencia_js(valor):
+    if not isinstance(valor, str) or not valor:
+        return False
+    sem_query = valor.split("?", 1)[0]
+    if not sem_query.lower().endswith((".js", ".mjs")):
+        return False
+    if any(c in valor for c in (" ", "{", "}", "!", '"', "'", "`", "(", ")", ";", "<", ">", "\\")):
+        return False
+    return True
+
+
+def resolver_referencia_js(valor, origem):
+    if valor.startswith(ESQUEMAS_URL):
+        return valor
+    if valor.startswith("//"):
+        return "https:" + valor
+    return urljoin(origem, valor)
+
+
+def js_descobertos(paginas_com_codigo):
+    descobertos = []
+    vistos = set()
+    for origem, codigo in paginas_com_codigo:
+        for bruto in extrair_strings(codigo):
+            valor = limpar_interpolacao(bruto) if "${" in bruto else bruto
+            if not parece_referencia_js(valor):
+                continue
+            absoluta = resolver_referencia_js(valor, origem)
+            chave = (origem, absoluta)
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+            descobertos.append((origem, absoluta))
+    return descobertos
+
+
+def comando_descobrir_js(conn, paginas_com_codigo, dominio, mostrar_tudo=False):
+    descobertos = js_descobertos(paginas_com_codigo)
+
+    if not descobertos:
+        print(f"\n{Fore.GREEN}[+] Nenhuma referência a .js encontrada dentro do código analisado.{Fore.RESET}")
+        return
+
+    coletadas = db.urls_coletadas(conn)
+
+    novos = []
+    ja_coletados = 0
+    fora_do_dominio = 0
+
+    for origem, url_js in descobertos:
+        if url_js in coletadas:
+            ja_coletados += 1
+            continue
+        if dominio_base(url_js) != dominio:
+            fora_do_dominio += 1
+            continue
+        novos.append((origem, url_js))
+
+    secao("Referências a .js encontradas no código", len(descobertos), cor=Fore.MAGENTA)
+    print(f"  {len(novos)} novo(s), dentro do domínio do alvo")
+    print(f"  {ja_coletados} já coletado(s) anteriormente")
+    print(f"  {fora_do_dominio} fora do domínio do alvo (ignorado — use --incluir-dominios na coleta se forem legítimos)")
+
+    if not novos:
+        print(f"\n{Fore.GREEN}[+] Nada novo para salvar.{Fore.RESET}")
+        return
+
+    print(f"\n{Fore.YELLOW}Novos .js encontrados:{Fore.RESET}")
+    imprimir_limitado(
+        novos,
+        lambda item: f"  → {item[1]}\n    {Fore.CYAN}(encontrado em {item[0]}){Fore.RESET}",
+        mostrar_tudo=mostrar_tudo,
+    )
+
+    salvos = db.salvar_descobertas_js(conn, novos)
+    print(f"\n{Fore.GREEN}[+] {salvos} novo(s) registrado(s). Rode a coleta de novo com --resume para buscá-los.{Fore.RESET}")
 
 
 def mostrar_endpoints(urls, paths, dominio, mostrar_tudo=False):
@@ -747,7 +832,7 @@ def js(conn, dominio, comando, alvo):
 
     acao = comando[3:].strip()
     if acao == "search":
-        js_search(paginas_com_codigo, dominio)
+        js_search(conn, paginas_com_codigo, dominio)
     elif acao == "reverse":
         js_reverse(paginas_com_codigo)
     else:
