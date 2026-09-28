@@ -6,6 +6,7 @@ import sys
 import time
 import tldextract
 import random
+import xml.etree.ElementTree as ET
 from collections import deque
 from urllib.parse import urlparse, urlunparse, urljoin
 
@@ -111,7 +112,67 @@ def detectar_bloqueio(html, status_code):
     return resultado
 
 
-def crawler(url, tempo, agent, tor, max_paginas=None, tentativas_bloqueio=3, resume=False, cookie=None, js_quota=5, incluir_dominios=None):
+def buscar_robots_sitemap(sessao, url_base, enfileirar_url):
+    partes = urlparse(url_base)
+    raiz = f"{partes.scheme}://{partes.netloc}"
+
+    caminhos_robots = []
+    urls_sitemap = set()
+
+    try:
+        resp = sessao.get(f"{raiz}/robots.txt", timeout=5)
+        if resp.status_code == 200:
+            for linha in resp.text.splitlines():
+                linha = linha.strip()
+                if linha.lower().startswith(("disallow:", "allow:")):
+                    caminho = linha.split(":", 1)[1].strip()
+                    if caminho and caminho != "/" and "*" not in caminho:
+                        caminhos_robots.append(caminho)
+                elif linha.lower().startswith("sitemap:"):
+                    urls_sitemap.add(linha.split(":", 1)[1].strip())
+    except requests.exceptions.RequestException:
+        pass
+
+    urls_sitemap.add(f"{raiz}/sitemap.xml")
+
+    novos_robots = []
+    for caminho in caminhos_robots:
+        alvo_url = urljoin(raiz, caminho)
+        if enfileirar_url(alvo_url):
+            novos_robots.append(alvo_url)
+
+    visitados_sitemap = set()
+    fila_sitemaps = list(urls_sitemap)
+    novos_sitemap = []
+
+    while fila_sitemaps:
+        sitemap_url = fila_sitemaps.pop()
+        if sitemap_url in visitados_sitemap:
+            continue
+        visitados_sitemap.add(sitemap_url)
+
+        try:
+            resp = sessao.get(sitemap_url, timeout=5)
+            if resp.status_code != 200:
+                continue
+            raiz_xml = ET.fromstring(resp.content)
+        except (requests.exceptions.RequestException, ET.ParseError):
+            continue
+
+        e_indice = raiz_xml.tag.lower().endswith("sitemapindex")
+        for loc in raiz_xml.iter():
+            if not loc.tag.lower().endswith("loc") or not loc.text:
+                continue
+            valor = loc.text.strip()
+            if e_indice:
+                fila_sitemaps.append(valor)
+            elif enfileirar_url(valor):
+                novos_sitemap.append(valor)
+
+    return novos_robots, novos_sitemap
+
+
+def crawler(url, tempo, agent, tor, max_paginas=None, tentativas_bloqueio=3, resume=False, cookie=None, js_quota=5, incluir_dominios=None, robots_sitemap=False):
     ext = tldextract.extract(url)
     dominio = ext.domain + "." + ext.suffix
 
@@ -178,20 +239,21 @@ def crawler(url, tempo, agent, tor, max_paginas=None, tentativas_bloqueio=3, res
     def enfileirar_normalizada(url_bruta, referer):
         normalizada = normalizar(url_bruta)
         if normalizada in visitadas or normalizada in enfileiradas:
-            return
+            return False
 
         e_js = e_arquivo_js(normalizada)
         if e_js:
             if dominio_base(normalizada) not in dominios_permitidos_js:
-                return
+                return False
         else:
             if not mesmo_dominio(normalizada, url):
-                return
+                return False
             if normalizada.lower().endswith(EXTENSOES_INUTEIS):
-                return
+                return False
 
         enfileiradas.add(normalizada)
         (fila_js if e_js else fila_normal).append((normalizada, referer))
+        return True
 
     if ja_existe and resume:
         visitadas = db.urls_coletadas(conn)
@@ -292,6 +354,13 @@ def crawler(url, tempo, agent, tor, max_paginas=None, tentativas_bloqueio=3, res
     if not (ja_existe and resume and url in visitadas):
         requisicao(url)
     visitadas.add(url)
+
+    if robots_sitemap:
+        urls_robots, urls_sitemap_novas = buscar_robots_sitemap(sessao, url, lambda u: enfileirar_normalizada(u, url))
+        descobertas = [(url, u) for u in urls_robots] + [(url, u) for u in urls_sitemap_novas]
+        if descobertas:
+            db.salvar_descobertas_js(conn, descobertas)
+        print(f"[+] robots.txt: {len(urls_robots)} caminho(s) novo(s) | sitemap: {len(urls_sitemap_novas)} URL(s) nova(s)\n")
 
     try:
         while fila_js or fila_normal:
