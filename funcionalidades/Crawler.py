@@ -112,7 +112,27 @@ def detectar_bloqueio(html, status_code):
     return resultado
 
 
-def buscar_robots_sitemap(sessao, url_base, enfileirar_url):
+def resolver_proxy(proxy):
+    if proxy.lower() == "tor":
+        return PROXIES_TOR, True
+    if "://" not in proxy:
+        proxy = "http://" + proxy
+    return {"http": proxy, "https": proxy}, False
+
+
+def proxy_mascarado(proxy):
+    if "@" not in proxy:
+        return proxy
+    esquema, _, resto = proxy.rpartition("://")
+    host = resto.rsplit("@", 1)[1]
+    return f"{esquema}://***@{host}" if esquema else f"***@{host}"
+
+
+def opcoes_tls(cert):
+    return {"verify": cert} if cert else {}
+
+
+def buscar_robots_sitemap(sessao, url_base, enfileirar_url, cert=None):
     partes = urlparse(url_base)
     raiz = f"{partes.scheme}://{partes.netloc}"
 
@@ -120,7 +140,7 @@ def buscar_robots_sitemap(sessao, url_base, enfileirar_url):
     urls_sitemap = set()
 
     try:
-        resp = sessao.get(f"{raiz}/robots.txt", timeout=5)
+        resp = sessao.get(f"{raiz}/robots.txt", timeout=5, **opcoes_tls(cert))
         if resp.status_code == 200:
             for linha in resp.text.splitlines():
                 linha = linha.strip()
@@ -152,7 +172,7 @@ def buscar_robots_sitemap(sessao, url_base, enfileirar_url):
         visitados_sitemap.add(sitemap_url)
 
         try:
-            resp = sessao.get(sitemap_url, timeout=5)
+            resp = sessao.get(sitemap_url, timeout=5, **opcoes_tls(cert))
             if resp.status_code != 200:
                 continue
             raiz_xml = ET.fromstring(resp.content)
@@ -172,7 +192,7 @@ def buscar_robots_sitemap(sessao, url_base, enfileirar_url):
     return novos_robots, novos_sitemap
 
 
-def crawler(url, tempo, agent, tor, max_paginas=None, tentativas_bloqueio=3, resume=False, cookie=None, js_quota=5, incluir_dominios=None, robots_sitemap=False):
+def crawler(url, tempo, agent, proxy, max_paginas=None, tentativas_bloqueio=3, resume=False, cookie=None, js_quota=5, incluir_dominios=None, robots_sitemap=False, cert=None):
     ext = tldextract.extract(url)
     dominio = ext.domain + "." + ext.suffix
 
@@ -199,30 +219,45 @@ def crawler(url, tempo, agent, tor, max_paginas=None, tentativas_bloqueio=3, res
             "Connection": "keep-alive",
         }
     )
+    if cert:
+        print(f"[+] Usando certificado CA em cada requisição: {cert}")
     if cookie:
         for par in cookie.split(";"):
             if "=" in par:
                 nome, valor = par.split("=", 1)
                 sessao.cookies.set(nome.strip(), valor.strip())
-    if tor:
-        sessao.proxies.update(PROXIES_TOR)
 
-    if tor:
+    if proxy:
+        proxies, e_tor = resolver_proxy(proxy)
+        sessao.proxies.update(proxies)
+
         try:
-            resp_teste = sessao.get("https://httpbin.org/ip", timeout=10)
-            print("Proxy funcionando!")
+            resp_teste = sessao.get("https://httpbin.org/ip", timeout=10, **opcoes_tls(cert))
+            print(f"Proxy funcionando! ({proxy_mascarado(proxy)})")
             print("IP:", resp_teste.json())
         except Exception:
-            print("Proxy não está funcionando")
-            print("Considere ativar o serviço tor: 'sudo service tor start'")
+            print(f"Proxy não está funcionando: {proxy_mascarado(proxy)}")
+            if e_tor:
+                print("Considere ativar o serviço tor: 'sudo service tor start'")
+            elif proxy.lower().startswith("socks"):
+                print("Proxies SOCKS exigem o suporte extra: pip install 'requests[socks]'")
             conn.close()
+            sessao.close()
             return
 
-        verificacao = sessao.get(url, timeout=5)
+        try:
+            verificacao = sessao.get(url, timeout=5, **opcoes_tls(cert))
+        except requests.exceptions.RequestException:
+            print("Não foi possível acessar o alvo através do proxy")
+            conn.close()
+            sessao.close()
+            return
+
         bloqueio = detectar_bloqueio(verificacao.text, verificacao.status_code)
         if bloqueio["bloqueio"] or bloqueio["captcha"]:
             print("O servidor está bloqueando o proxy")
             conn.close()
+            sessao.close()
             return
 
     print(f"[+] Alvo: {url}\n")
@@ -266,7 +301,7 @@ def crawler(url, tempo, agent, tor, max_paginas=None, tentativas_bloqueio=3, res
 
     def fazer_requisicao_http(url_path, referer):
         extras = cabecalhos_extra(url_path, referer)
-        return sessao.get(url_path, headers=extras, timeout=5)
+        return sessao.get(url_path, headers=extras, timeout=5, **opcoes_tls(cert))
 
     def resolver_absolutas(lista, url_pagina_atual):
         resolvidas = []
@@ -356,7 +391,7 @@ def crawler(url, tempo, agent, tor, max_paginas=None, tentativas_bloqueio=3, res
     visitadas.add(url)
 
     if robots_sitemap:
-        urls_robots, urls_sitemap_novas = buscar_robots_sitemap(sessao, url, lambda u: enfileirar_normalizada(u, url))
+        urls_robots, urls_sitemap_novas = buscar_robots_sitemap(sessao, url, lambda u: enfileirar_normalizada(u, url), cert=cert)
         descobertas = [(url, u) for u in urls_robots] + [(url, u) for u in urls_sitemap_novas]
         if descobertas:
             db.salvar_descobertas_js(conn, descobertas)
