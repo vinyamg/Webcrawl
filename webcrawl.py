@@ -25,11 +25,28 @@ def proxy_valido(proxy: str) -> bool:
     return parsed.scheme in PROXY_ESQUEMAS and bool(parsed.hostname) and porta is not None
 
 
+def intervalo_tempo(valor: str):
+    texto = valor.strip().replace(" ", "")
+    separador = "," if "," in texto else "-" if "-" in texto else None
+    try:
+        if separador:
+            minimo, maximo = (float(p) for p in texto.split(separador, 1))
+        else:
+            minimo = maximo = float(texto)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"valor inválido '{valor}'. Use um número (ex: 2) ou um intervalo (ex: 0.5,1.5)")
+    if minimo < 0 or maximo < 0:
+        raise argparse.ArgumentTypeError("o tempo não pode ser negativo")
+    if minimo > maximo:
+        raise argparse.ArgumentTypeError(f"intervalo inválido '{valor}': o mínimo é maior que o máximo")
+    return (minimo, maximo)
+
+
 def main():
     parser = argparse.ArgumentParser(description="webCrawler - ferramenta de coleta e análise de superfície de ataque")
     parser.add_argument("--url", help="Url do alvo (precisa incluir http:// ou https://)", type=str)
     parser.add_argument("--analyze", action="store_true", help="Analisa os dados já coletados")
-    parser.add_argument("--random-agent", action="store_true", help="User agent aleatório")
+    parser.add_argument("--random-agent", action="store_true", help="Perfil de navegador aleatório (Chrome, Safari ou Firefox) com TLS e cabeçalhos coerentes via curl_cffi")
     parser.add_argument(
         "--proxy",
         type=str,
@@ -45,7 +62,7 @@ def main():
         help="Caminho de um certificado CA (.pem/.crt) para validar o HTTPS, "
              "útil com proxies que interceptam TLS, como Burp/ZAP (ex: '~/burp-ca.pem')",
     )
-    parser.add_argument("-t", type=int, default=0, help="Tempo entre as requisições em segundos (padrão: 0)")
+    parser.add_argument("-t", type=intervalo_tempo, default=(0.0, 0.0), help="Tempo entre as requisições em segundos: um valor fixo (ex: 2) ou um intervalo aleatório (ex: 0.5,1.5). Padrão: 0")
     parser.add_argument("--max-paginas", type=int, default=None, help="Limite máximo de páginas a coletar (padrão: sem limite)")
     parser.add_argument("--resume", action="store_true", help="Retoma uma coleta interrompida a partir dos dados já salvos")
     parser.add_argument("--cookie", type=str, default=None, help="Cookie a enviar nas requisições (ex: 'session=abc123; outro=xyz')")

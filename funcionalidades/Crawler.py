@@ -1,4 +1,5 @@
-import requests
+from curl_cffi import requests as cffi_requests
+from curl_cffi.requests.exceptions import RequestException, Timeout, TooManyRedirects
 from bs4 import BeautifulSoup
 from bs4 import XMLParsedAsHTMLWarning
 import warnings
@@ -12,20 +13,18 @@ from urllib.parse import urlparse, urlunparse, urljoin
 
 from . import db
 from .config import (
-    USER_AGENTS,
-    DEFAULT_USER_AGENT,
     PROXIES_TOR,
     CAPTCHA_KEYWORDS,
     PROTECTION_KEYWORDS,
     BLOCK_KEYWORDS,
     STATUS_CODES_BLOQUEIO,
     EXTENSOES_INUTEIS,
-    ACCEPT_PADRAO,
     ACCEPT_LANGUAGE_PADRAO,
-    ACCEPT_ENCODING_PADRAO,
 )
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+IMPERSONATE_PADRAO = "chrome"
+IMPERSONATE_ALEATORIOS = ("chrome", "safari", "firefox")
 
 
 def coleta(html):
@@ -76,17 +75,16 @@ def e_arquivo_js(url_path):
 
 def cabecalhos_extra(url_path, referer):
     documento = not e_arquivo_js(url_path)
-    extras = {
-        "Accept": ACCEPT_PADRAO if documento else "*/*",
-        "Sec-Fetch-Dest": "document" if documento else "script",
-        "Sec-Fetch-Mode": "navigate" if documento else "no-cors",
-        "Sec-Fetch-Site": "same-origin" if referer else "none",
-    }
-    if documento:
-        extras["Upgrade-Insecure-Requests"] = "1"
-        extras["Sec-Fetch-User"] = "?1"
+    extras = {}
+    if not documento:
+        extras["Accept"] = "*/*"
+        extras["Sec-Fetch-Dest"] = "script"
+        extras["Sec-Fetch-Mode"] = "no-cors"
     if referer:
+        extras["Sec-Fetch-Site"] = "same-origin"
         extras["Referer"] = referer
+    elif not documento:
+        extras["Sec-Fetch-Site"] = "none"
     return extras
 
 
@@ -150,7 +148,7 @@ def buscar_robots_sitemap(sessao, url_base, enfileirar_url, cert=None):
                         caminhos_robots.append(caminho)
                 elif linha.lower().startswith("sitemap:"):
                     urls_sitemap.add(linha.split(":", 1)[1].strip())
-    except requests.exceptions.RequestException:
+    except RequestException:
         pass
 
     urls_sitemap.add(f"{raiz}/sitemap.xml")
@@ -176,7 +174,7 @@ def buscar_robots_sitemap(sessao, url_base, enfileirar_url, cert=None):
             if resp.status_code != 200:
                 continue
             raiz_xml = ET.fromstring(resp.content)
-        except (requests.exceptions.RequestException, ET.ParseError):
+        except (RequestException, ET.ParseError):
             continue
 
         e_indice = raiz_xml.tag.lower().endswith("sitemapindex")
@@ -208,24 +206,25 @@ def crawler(url, tempo, agent, proxy, max_paginas=None, tentativas_bloqueio=3, r
     conn = db.conectar(dominio)
     db.gravar_metadata(conn, url, dominio)
 
-    user_agent = random.choice(USER_AGENTS) if agent else DEFAULT_USER_AGENT
+    if isinstance(tempo, (tuple, list)):
+        atraso_min, atraso_max = tempo
+    else:
+        atraso_min = atraso_max = float(tempo or 0)
 
-    sessao = requests.Session()
-    sessao.headers.update(
-        {
-            "User-Agent": user_agent,
-            "Accept-Language": ACCEPT_LANGUAGE_PADRAO,
-            "Accept-Encoding": ACCEPT_ENCODING_PADRAO,
-            "Connection": "keep-alive",
-        }
-    )
+    perfil = random.choice(IMPERSONATE_ALEATORIOS) if agent else IMPERSONATE_PADRAO
+
+    sessao = cffi_requests.Session(impersonate=perfil)
+    sessao.headers.update({"Accept-Language": ACCEPT_LANGUAGE_PADRAO})
+    print(f"[+] Perfil de navegador (curl_cffi): {perfil}")
+
     if cert:
         print(f"[+] Usando certificado CA em cada requisição: {cert}")
+    host_alvo = urlparse(url).hostname
     if cookie:
         for par in cookie.split(";"):
             if "=" in par:
                 nome, valor = par.split("=", 1)
-                sessao.cookies.set(nome.strip(), valor.strip())
+                sessao.cookies.set(nome.strip(), valor.strip(), domain=host_alvo)
 
     if proxy:
         proxies, e_tor = resolver_proxy(proxy)
@@ -240,14 +239,14 @@ def crawler(url, tempo, agent, proxy, max_paginas=None, tentativas_bloqueio=3, r
             if e_tor:
                 print("Considere ativar o serviço tor: 'sudo service tor start'")
             elif proxy.lower().startswith("socks"):
-                print("Proxies SOCKS exigem o suporte extra: pip install 'requests[socks]'")
+                print("Dica: use socks5h:// para resolver o DNS pelo proxy")
             conn.close()
             sessao.close()
             return
 
         try:
             verificacao = sessao.get(url, timeout=5, **opcoes_tls(cert))
-        except requests.exceptions.RequestException:
+        except RequestException:
             print("Não foi possível acessar o alvo através do proxy")
             conn.close()
             sessao.close()
@@ -332,11 +331,11 @@ def crawler(url, tempo, agent, proxy, max_paginas=None, tentativas_bloqueio=3, r
         for tentativa in range(tentativas_bloqueio):
             try:
                 resp = fazer_requisicao_http(url_path, referer)
-            except requests.exceptions.Timeout:
+            except Timeout:
                 return
-            except requests.exceptions.TooManyRedirects:
+            except TooManyRedirects:
                 return
-            except requests.exceptions.RequestException:
+            except RequestException:
                 return
 
             if resp.status_code == 200:
@@ -355,8 +354,8 @@ def crawler(url, tempo, agent, proxy, max_paginas=None, tentativas_bloqueio=3, r
                     db.salvar_pagina_html(conn, url_path, resultado)
                     for lista in (resultado["links"], resultado["css"], resultado["scripts_externos"]):
                         enfileirar(lista, url_path)
-                if tempo:
-                    time.sleep(tempo)
+                if atraso_max > 0:
+                    time.sleep(random.uniform(atraso_min, atraso_max))
                 return
 
             bloqueio = detectar_bloqueio(resp.text, resp.status_code)
